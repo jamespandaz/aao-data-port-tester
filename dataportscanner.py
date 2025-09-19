@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+import os
+import sys
+import subprocess
+import venv
+import argparse
+
+VENV_DIR = ".venv"
+REQUIREMENTS = "requirements.txt"
+
+def ensure_venv():
+    """Ensure virtual environment exists and requirements are installed."""
+    if not os.path.exists(VENV_DIR):
+        print("[+] Creating virtual environment...")
+        venv.create(VENV_DIR, with_pip=True)
+
+    pip_path = os.path.join(VENV_DIR, "bin", "pip")
+    python_path = os.path.join(VENV_DIR, "bin", "python")
+
+    print("[+] Installing dependencies...")
+    subprocess.check_call([pip_path, "install", "-r", REQUIREMENTS])
+
+    if os.path.realpath(sys.executable) != os.path.realpath(python_path):
+        print("[+] Re-executing inside venv...")
+        os.execv(python_path, [python_path] + sys.argv)
+
+# --- main logic ---
+def run_netool(iface):
+    from scapy.all import sniff, Ether, Raw
+
+    def parse_lldp(raw):
+        '''Parse LLDP info for the switch information'''
+        tlvs = {}
+        i = 0
+        while i < len(raw):
+            if i + 2 > len(raw):
+                break
+            tlv_header = int.from_bytes(raw[i:i+2], "big")
+            tlv_type = (tlv_header >> 9) & 0x7F
+            tlv_len = tlv_header & 0x1FF
+            tlv_val = raw[i+2:i+2+tlv_len]
+
+            if tlv_type == 1:
+                tlvs["chassis_id"] = tlv_val.hex()
+            elif tlv_type == 2:
+                tlvs["port_id"] = tlv_val[1:].decode(errors="ignore")
+            elif tlv_type == 5:
+                tlvs["system_name"] = tlv_val.decode(errors="ignore")
+            elif tlv_type == 6:
+                tlvs["system_desc"] = tlv_val.decode(errors="ignore")
+            elif tlv_type == 8:
+                if len(tlv_val) > 1:
+                    tlvs["mgmt_ip"] = ".".join(str(b) for b in tlv_val[1:5])
+            elif tlv_type == 127:
+                if tlv_val[:3] == b"\x00\x12\x0f":
+                    subtype = tlv_val[3]
+                    if subtype == 3:
+                        vlan_id = int.from_bytes(tlv_val[4:6], "big")
+                        tlvs["pvid"] = vlan_id
+            i += 2 + tlv_len
+        return tlvs
+
+    def handle_pkt(pkt):
+        ''' Sees the packet and prints the info'''
+        if pkt.haslayer(Raw) and pkt.haslayer(Ether):
+            if pkt[Ether].type == 0x88cc:
+                info = parse_lldp(pkt[Raw].load)
+                print("\n=== LLDP Info ===")
+                print(f" Switch Hostname : {info.get('system_name','?')}")
+                print(f" Switch Port     : {info.get('port_id','?')}")
+                print(f" Mgmt IP         : {info.get('mgmt_ip','?')}")
+                print(f" VLAN (PVID)     : {info.get('pvid','?')}")
+                print(f" Description     : {info.get('system_desc','?')}\n")
+
+    def get_dhcp_info(iface):
+        ''' Gets DHCP info'''
+        try:
+            subprocess.run(["dhclient", "-r", iface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            out = subprocess.check_output(["dhclient", "-v", iface], stderr=subprocess.STDOUT)
+            return out.decode(errors="ignore")
+        except Exception as e:
+            return f"DHCP error: {e}"
+
+    print(f"Starting Data Port listener on {iface}...")
+    print("Press Ctrl+C to stop.\n")
+
+    print("=== DHCP Info ===")
+    print(get_dhcp_info(iface))
+
+    sniff(filter="ether proto 0x88cc or ether dst 01:00:0c:cc:cc:cc",
+          prn=handle_pkt, store=0, iface=iface)
+
+
+if __name__ == "__main__":
+    ensure_venv()
+
+    parser = argparse.ArgumentParser(description="Data Port LLDP/CDP and DHCP tester")
+    parser.add_argument("iface", help="Interface to use (e.g., eth0, eno1, ens33, etc.)")
+    args = parser.parse_args()
+
+    run_netool(args.iface)
