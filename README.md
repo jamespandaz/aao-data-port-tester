@@ -15,3 +15,8 @@ Usage:
 
 eg:
 ```sudo ./quokka.py eth0```
+
+## Dependcies
+<ol>
+     <li><b>Scapy</b> <i>Packet Manipulation Library</i>: https://github.com/secdev/scapy</li>
+</ol>
