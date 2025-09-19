@@ -8,6 +8,21 @@ import argparse
 VENV_DIR = ".venv"
 REQUIREMENTS = "requirements.txt"
 
+def print_banner():
+    banner = r"""
+     _____ _   _ _____ _   __ _   __  ___
+    |  _  | | | |  _  | | / /| | / / / _ \
+    | | | | | | | | | | |/ / | |/ / / /_\ \
+    | | | | | | | | | |    \ |    \ |  _  |
+    \ \/' / |_| \ \_/ / |\  \| |\  \| | | |
+     \_/\_\\___/ \___/\_| \_/\_| \_/\_| |_/
+
+         QUOKKA v0.1
+Quick Observation Of LAN K(K)nowledge Acquisition
+"""
+    print(banner)
+
+
 def ensure_venv():
     """Ensure virtual environment exists and requirements are installed."""
     if not os.path.exists(VENV_DIR):
@@ -23,6 +38,9 @@ def ensure_venv():
     if os.path.realpath(sys.executable) != os.path.realpath(python_path):
         print("[+] Re-executing inside venv...")
         os.execv(python_path, [python_path] + sys.argv)
+
+    print("Done installing dependencies.")
+    print_banner()
 
 # --- main logic ---
 def run_netool(iface):
